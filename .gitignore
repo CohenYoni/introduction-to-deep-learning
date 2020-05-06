@@ -3,3 +3,5 @@
 !sample.txt
 !.gitignore
 !requirements.txt
+!BBC_news_dataset.csv
+!load_words_vector.py
