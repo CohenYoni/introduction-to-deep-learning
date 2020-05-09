@@ -4,19 +4,25 @@ Yoni Cohen
 May Hagbi
 """
 
+from sklearn.model_selection import train_test_split
+from keras.optimizers import SGD
 from nltk.tokenize import word_tokenize
+from keras.layers.core import Dense
+from keras.models import Sequential
 from nltk.corpus import stopwords
 import pandas as pd
 import numpy as np
 import argparse
 import logging
 import string
+import sys
 import re
 
-MOST_SIMILAR_FILE_NAME = 'most_similar.txt'
 WORD_VECTORS_FILE_PATH = 'wiki-news-300d-1M.vec'
+MOST_SIMILAR_FILE_NAME = 'most_similar.txt'
+TEST_PORTION_SIZE = 0.3
 
-logging.basicConfig(format='%(asctime)s | %(message)s', level=logging.INFO)
+logging.basicConfig(stream=sys.stdout, format='%(asctime)s | %(message)s', level=logging.INFO)
 
 
 def is_alphabetic(word_str):
@@ -88,7 +94,7 @@ def train_task_handler(user_args):
     sentences_avg_vectors = get_average_vectors(processed_sentences, word_vectors)
     logging.info('converting tags to average vectors...')
     tags_avg_vectors = get_average_vectors(processed_tags, word_vectors)
-    training(sentences_avg_vectors, tags_avg_vectors, user_args.model)
+    training(data=tags_avg_vectors, labels=sentences_avg_vectors, model_file_path=user_args.model)
 
 
 def training(data, labels, model_file_path):
@@ -99,13 +105,61 @@ def training(data, labels, model_file_path):
     :param labels: numpy array of tags average vectors
     :param model_file_path: an absolute path for file who saves the model structure and weights
     """
-    # TODO: dataset splitting (70/30)
-    # TODO: model definition (300 dimension input and output layers)
-    # TODO: model compilation
-    # TODO: model fitting
-    # TODO: model evaluation
-    # TODO: save model in file
-    pass
+    # train-test splitting
+    logging.info('splitting...')
+    train_data, test_data, train_labels, test_labels = train_test_split(data, labels, test_size=TEST_PORTION_SIZE)
+    # model definition
+    logging.info('defining the model...')
+    model = Sequential()  # layers are stacked one upon each other
+    model.add(Dense(300, activation="softmax", input_dim=300))  # input layer, 300 is the size of an input vector
+    # stacking takes care of matching output dimensions
+    model.add(Dense(300, activation="softmax"))
+    model.add(Dense(300, activation="softmax"))
+    model.add(Dense(300, activation="softmax"))
+    # model compilation
+    logging.info('compiling the model...')
+    model.compile(optimizer=SGD(lr=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
+    # model fitting
+    logging.info('training...')
+    model.fit(train_data, train_labels, epochs=100, batch_size=64)
+    # model evaluation
+    logging.info('evaluating...')
+    score, accuracy = model.evaluate(test_data, test_labels, batch_size=64, verbose=0)
+    print(f'score = {score}, accuracy = {accuracy}')
+    # save model to json and h5 files
+    logging.info('save model...')
+    save_model_to_json(model, model_file_path)
+    save_model_to_h5(model, model_file_path)
+
+
+def save_model_to_h5(model_obj, model_file_path):
+    """
+    Save complete model to h5 file
+    :param model_obj: an object represents the model
+    :param model_file_path: file path to save the model
+    """
+    if not model_file_path.endswith('.h5'):
+        model_file_path = f'{model_file_path}.h5'
+    model_obj.save(model_file_path)
+    logging.info(f'Model saved to {model_file_path}')
+
+
+def save_model_to_json(model_obj, model_file_path):
+    """
+    Save model structure to json file and weights to h5 file
+    :param model_obj: an object represents the model
+    :param model_file_path: file path to save the model
+    """
+    json_file_path = f'{model_file_path}.json'
+    weights_file_path = f'{model_file_path}_json_weights.h5'
+    # save model to json file
+    model_json = model_obj.to_json()
+    with open(json_file_path, 'w') as json_file:
+        json_file.write(model_json)
+    logging.info(f'Model saved to {json_file_path}')
+    # save weights to h5 file
+    model_obj.save_weights(weights_file_path)
+    logging.info(f'Model weights saved to {weights_file_path}')
 
 
 def get_average_vectors(array_of_words_array, word_vectors):
