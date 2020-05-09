@@ -5,11 +5,12 @@ May Hagbi
 """
 
 from sklearn.model_selection import train_test_split
-from keras.optimizers import SGD
 from nltk.tokenize import word_tokenize
 from keras.layers.core import Dense
 from keras.models import Sequential
 from nltk.corpus import stopwords
+from keras.optimizers import SGD
+import matplotlib.pyplot as plt
 import pandas as pd
 import numpy as np
 import argparse
@@ -58,7 +59,7 @@ def get_user_cli_args():
     parser.add_argument('--text', help='text file global path')
     parser.add_argument('--task', choices=TASKS.keys(), help='/'.join(TASKS.keys()), required=True)
     parser.add_argument('--data', help='training dataset in .csv format')
-    parser.add_argument('--model', help='trained model file global path')
+    parser.add_argument('--model', help='trained model file global path', required=True)
     return parser.parse_args()
 
 
@@ -69,10 +70,23 @@ def read_dataset(dataset_file_path):
     :return: a dictionary of numpy arrays contains tags (query) and description (sentence)
     """
     dataset = pd.read_csv(dataset_file_path)
+    dataset.fillna('', inplace=True)
     return {
-        'description': np.asarray(dataset['description'][:5]),  # TODO: remove slicing
-        'tags': np.asarray(dataset['tags'][:5])  # TODO: remove slicing
+        'description': np.asarray(dataset['description']),
+        'tags': np.asarray(dataset['tags'])
     }
+
+
+def remove_sentences_without_tags(dataset):
+    """
+    Filter out missing data
+    :param dataset: dataset from csv
+    :return: correct dataset
+    """
+    filter_array = dataset['tags'] != ''
+    dataset['description'] = dataset['description'][filter_array]
+    dataset['tags'] = dataset['tags'][filter_array]
+    return dataset
 
 
 def train_task_handler(user_args):
@@ -81,9 +95,10 @@ def train_task_handler(user_args):
     :param user_args: user cli arguments
     """
     assert user_args.data, '--data argument is missing'
-    assert user_args.model, '--model argument is missing'
     logging.info('reading dataset...')
     dataset = read_dataset(user_args.data)
+    logging.info('remove sentences without tags...')
+    dataset = remove_sentences_without_tags(dataset)
     logging.info('pre processing sentences...')
     processed_sentences = np.asarray(list(map(sentence_pre_processing, dataset['description'])))
     logging.info('pre processing tags...')
@@ -94,6 +109,12 @@ def train_task_handler(user_args):
     sentences_avg_vectors = get_average_vectors(processed_sentences, word_vectors)
     logging.info('converting tags to average vectors...')
     tags_avg_vectors = get_average_vectors(processed_tags, word_vectors)
+    logging.info('start training..')
+    # np.savetxt('data_recovery.csv', tags_avg_vectors, delimiter='|')
+    # np.savetxt('labels_recovery.csv', sentences_avg_vectors, delimiter='|')
+    # tags_avg_vectors = np.genfromtxt('data_recovery.csv', delimiter='|')
+    # sentences_avg_vectors = np.genfromtxt('labels_recovery.csv', delimiter='|')
+
     training(data=tags_avg_vectors, labels=sentences_avg_vectors, model_file_path=user_args.model)
 
 
@@ -111,25 +132,44 @@ def training(data, labels, model_file_path):
     # model definition
     logging.info('defining the model...')
     model = Sequential()  # layers are stacked one upon each other
-    model.add(Dense(300, activation="softmax", input_dim=300))  # input layer, 300 is the size of an input vector
+    model.add(Dense(40, activation="softmax", input_dim=300))  # input layer, 300 is the size of an input vector
     # stacking takes care of matching output dimensions
-    model.add(Dense(300, activation="softmax"))
-    model.add(Dense(300, activation="softmax"))
+    model.add(Dense(40, activation="softmax"))
     model.add(Dense(300, activation="softmax"))
     # model compilation
     logging.info('compiling the model...')
-    model.compile(optimizer=SGD(lr=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=SGD(lr=0.01), loss='categorical_crossentropy', metrics=['accuracy'])
     # model fitting
     logging.info('training...')
-    model.fit(train_data, train_labels, epochs=100, batch_size=64)
+    training_history = model.fit(train_data, train_labels, epochs=10, batch_size=80)
+    create_training_graph(training_history, 'training_history.png')
     # model evaluation
     logging.info('evaluating...')
-    score, accuracy = model.evaluate(test_data, test_labels, batch_size=64, verbose=0)
-    print(f'score = {score}, accuracy = {accuracy}')
+    loss, accuracy = model.evaluate(test_data, test_labels, batch_size=80, verbose=0)
+    print(f'loss = {loss}, accuracy = {accuracy}')
     # save model to json and h5 files
     logging.info('save model...')
     save_model_to_json(model, model_file_path)
     save_model_to_h5(model, model_file_path)
+
+
+def create_training_graph(training_history, image_path):
+    """
+    Create loss and accuracy graphs
+    :param training_history: a history object returned from model.fit function
+    :param image_path: an absolute path for graph file
+    """
+    x_axis = training_history.epoch
+    y1_axis = training_history.history['accuracy']
+    y2_axis = training_history.history['loss']
+    fig, (accuracy_line, loss_line) = plt.subplots(2)
+    fig.suptitle('Training History')
+    accuracy_line.plot(x_axis, y1_axis, label='accuracy')
+    accuracy_line.set(xlabel='x - epochs', ylabel='y - accuracy')
+    loss_line.plot(x_axis, y2_axis, label='loss')
+    loss_line.set(xlabel='x - epochs', ylabel='y - loss')
+    fig.savefig(image_path)
+    plt.close(fig)
 
 
 def save_model_to_h5(model_obj, model_file_path):
