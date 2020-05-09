@@ -143,7 +143,7 @@ def training(data, labels, model_file_path):
     model.compile(optimizer=SGD(lr=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
     # model fitting
     logging.info('training...')
-    training_history = model.fit(train_data, train_labels, epochs=800, batch_size=40)
+    training_history = model.fit(train_data, train_labels, epochs=10, batch_size=40)
     create_training_graph(training_history, 'training_history.png')
     # model evaluation
     logging.info('evaluating...')
