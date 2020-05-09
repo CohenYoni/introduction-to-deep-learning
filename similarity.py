@@ -4,10 +4,12 @@ Yoni Cohen
 May Hagbi
 """
 
+from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
 from nltk.tokenize import word_tokenize
 from keras.layers.core import Dense
 from keras.models import Sequential
+from keras.models import load_model
 from nltk.corpus import stopwords
 from keras.optimizers import SGD
 import matplotlib.pyplot as plt
@@ -106,9 +108,9 @@ def train_task_handler(user_args):
     logging.info('loading vectors...')
     word_vectors = load_vectors(WORD_VECTORS_FILE_PATH)
     logging.info('converting sentences to average vectors...')
-    sentences_avg_vectors = get_average_vectors(processed_sentences, word_vectors)
+    sentences_avg_vectors = get_average_vectors_from_array(processed_sentences, word_vectors)
     logging.info('converting tags to average vectors...')
-    tags_avg_vectors = get_average_vectors(processed_tags, word_vectors)
+    tags_avg_vectors = get_average_vectors_from_array(processed_tags, word_vectors)
     logging.info('start training..')
     # np.savetxt('data_recovery.csv', tags_avg_vectors, delimiter='|')
     # np.savetxt('labels_recovery.csv', sentences_avg_vectors, delimiter='|')
@@ -132,21 +134,21 @@ def training(data, labels, model_file_path):
     # model definition
     logging.info('defining the model...')
     model = Sequential()  # layers are stacked one upon each other
-    model.add(Dense(40, activation="softmax", input_dim=300))  # input layer, 300 is the size of an input vector
+    model.add(Dense(30, activation="softmax", input_dim=300))  # input layer, 300 is the size of an input vector
     # stacking takes care of matching output dimensions
-    model.add(Dense(40, activation="softmax"))
+    model.add(Dense(30, activation="softmax"))
     model.add(Dense(300, activation="softmax"))
     # model compilation
     logging.info('compiling the model...')
-    model.compile(optimizer=SGD(lr=0.01), loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=SGD(lr=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
     # model fitting
     logging.info('training...')
-    training_history = model.fit(train_data, train_labels, epochs=10, batch_size=80)
+    training_history = model.fit(train_data, train_labels, epochs=800, batch_size=40)
     create_training_graph(training_history, 'training_history.png')
     # model evaluation
     logging.info('evaluating...')
-    loss, accuracy = model.evaluate(test_data, test_labels, batch_size=80, verbose=0)
-    print(f'loss = {loss}, accuracy = {accuracy}')
+    loss, accuracy = model.evaluate(test_data, test_labels, batch_size=40, verbose=0)
+    print(f'evaluating scores: loss = {loss}, accuracy = {accuracy}')
     # save model to json and h5 files
     logging.info('save model...')
     save_model_to_json(model, model_file_path)
@@ -202,20 +204,31 @@ def save_model_to_json(model_obj, model_file_path):
     logging.info(f'Model weights saved to {weights_file_path}')
 
 
-def get_average_vectors(array_of_words_array, word_vectors):
+def get_average_vector(words_array, word_vectors):
+    """
+    Get average vector of sentence by converting it to FastText vector and calculate average
+    :param words_array: a numpy array of words
+    :param word_vectors: FastText word embedding vector
+    :return: average vector (vector length is 300)
+    """
+    # get sentence vector and remove None (None element is an unknown word, it's not in word vector)
+    sentence_vectors = map(lambda word: word_vectors.get(word, None), words_array)
+    vectors_without_none = np.asarray(list(filter(lambda vector: vector is not None, sentence_vectors)))
+    # calculate vector average
+    sentence_avg = np.average(vectors_without_none, axis=0)
+    return sentence_avg
+
+
+def get_average_vectors_from_array(array_of_words_array, word_vectors):
     """
     Get average vector for each sentence by converting each word to FastText vector and calculate average
-    :param array_of_words_array: numpy array of sentences, each sentence is a numpy array of words
+    :param array_of_words_array: a numpy array of sentences, each sentence is a numpy array of words
     :param word_vectors: FastText word embedding vector
     :return: numpy array of average vector (vector length is 300)
     """
     sentences_avg_vectors = []
     for sentence in array_of_words_array:
-        # get sentence vector and remove None (None element is an unknown word, it's not in word vector)
-        sentence_vectors = map(lambda word: word_vectors.get(word, None), sentence)
-        vectors_without_none = np.asarray(list(filter(lambda vector: vector is not None, sentence_vectors)))
-        # calculate vector average
-        sentence_avg = np.average(vectors_without_none, axis=0)
+        sentence_avg = get_average_vector(sentence, word_vectors)
         sentences_avg_vectors.append(sentence_avg)
     return np.asarray(sentences_avg_vectors)
 
@@ -242,6 +255,46 @@ def test_task_handler(user_args):
     """
     assert user_args.query, '--query argument is missing'
     assert user_args.text, '--text argument is missing'
+    logging.info('loading model...')
+    model = load_model(user_args.model)
+    model.summary()
+    logging.info(f'reading query from {user_args.query} file...')
+    with open(user_args.query, 'r') as query_file:
+        query = query_file.read()
+    logging.info(f'reading sentences from {user_args.text} file...')
+    with open(user_args.text, 'r') as sentences_file:
+        sentences = [sentence.replace('\n', '') for sentence in sentences_file.readlines()]
+    logging.info('pre processing query...')
+    processed_query = sentence_pre_processing(query)
+    logging.info('pre processing sentences...')
+    processed_sentences = np.asarray(list(map(sentence_pre_processing, sentences)))
+    logging.info('loading vectors...')
+    word_vectors = load_vectors(WORD_VECTORS_FILE_PATH)
+    logging.info('converting query to average vectors...')
+    query_avg_vector = get_average_vector(processed_query, word_vectors)
+    logging.info('converting sentences to average vectors...')
+    sentences_avg_vectors = get_average_vectors_from_array(processed_sentences, word_vectors)
+
+    # np.savetxt('test_query_recovery.csv', query_avg_vector, delimiter='|')
+    # np.savetxt('test_sentences_recovery.csv', sentences_avg_vectors, delimiter='|')
+    # query_avg_vector = np.asarray([np.genfromtxt('test_query_recovery.csv', delimiter='|'), ])
+    # sentences_avg_vectors = np.genfromtxt('test_sentences_recovery.csv', delimiter='|')
+
+    predict_vector = model.predict(query_avg_vector)
+    cosine_similarity_values = []
+    max_val = None
+    max_index = 0
+    for i, sentence_vector in enumerate(sentences_avg_vectors, 0):
+        sentence_vector_2d = np.asarray([sentence_vector, ])
+        val = cosine_similarity(predict_vector, sentence_vector_2d)[0][0]
+        cosine_similarity_values.append(val)
+        if max_val is None:
+            max_val = val
+        elif val > max_val:
+            max_val = val
+            max_index = i
+    most_similar_sentence = sentences[max_index]
+    print(f'"{most_similar_sentence}" sentence is similar to "{query}" query in {max_val} score')
 
 
 def sentence_pre_processing(raw_sentence):
