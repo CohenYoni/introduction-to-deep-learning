@@ -147,11 +147,11 @@ def training(data, labels, model_file_path):
     model.compile(optimizer=SGD(lr=0.01), loss='mean_squared_error', metrics=['accuracy'])
     # model fitting
     logging.info('training...')
-    training_history = model.fit(train_data, train_labels, epochs=50, batch_size=10, verbose=0)
+    training_history = model.fit(train_data, train_labels, epochs=50, batch_size=10)
     create_training_graph(training_history, GRAPH_PATH)
     # model evaluation
     logging.info('evaluating...')
-    loss, accuracy = model.evaluate(test_data, test_labels, batch_size=10, verbose=0)
+    loss, accuracy = model.evaluate(test_data, test_labels, batch_size=10)
     print(f'evaluating scores: loss = {loss}, accuracy = {accuracy}')
     # save model to json and h5 files
     logging.info('save model...')
