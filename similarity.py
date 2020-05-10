@@ -20,9 +20,11 @@ import logging
 import string
 import sys
 import re
+import os
 
 WORD_VECTORS_FILE_PATH = 'wiki-news-300d-1M.vec'
 MOST_SIMILAR_FILE_NAME = 'most_similar.txt'
+GRAPH_PATH = 'training_history.png'
 TEST_PORTION_SIZE = 0.3
 
 logging.basicConfig(stream=sys.stdout, format='%(asctime)s | %(message)s', level=logging.INFO)
@@ -112,12 +114,8 @@ def train_task_handler(user_args):
     logging.info('converting tags to average vectors...')
     tags_avg_vectors = get_average_vectors_from_array(processed_tags, word_vectors)
     logging.info('start training..')
-    # np.savetxt('data_recovery.csv', tags_avg_vectors, delimiter='|')
-    # np.savetxt('labels_recovery.csv', sentences_avg_vectors, delimiter='|')
-    # tags_avg_vectors = np.genfromtxt('data_recovery.csv', delimiter='|')
-    # sentences_avg_vectors = np.genfromtxt('labels_recovery.csv', delimiter='|')
-
     training(data=tags_avg_vectors, labels=sentences_avg_vectors, model_file_path=user_args.model)
+    logging.info('train task done!')
 
 
 def training(data, labels, model_file_path):
@@ -130,24 +128,30 @@ def training(data, labels, model_file_path):
     """
     # train-test splitting
     logging.info('splitting...')
-    train_data, test_data, train_labels, test_labels = train_test_split(data, labels, test_size=TEST_PORTION_SIZE)
+    train_data, test_data, train_labels, test_labels = train_test_split(data, labels,
+                                                                        test_size=TEST_PORTION_SIZE, shuffle=True,
+                                                                        random_state=np.random.randint(1, high=1000))
     # model definition
     logging.info('defining the model...')
     model = Sequential()  # layers are stacked one upon each other
-    model.add(Dense(30, activation="softmax", input_dim=300))  # input layer, 300 is the size of an input vector
+    model.add(Dense(300, activation="relu", input_dim=300))  # input layer, 300 is the size of an input vector
     # stacking takes care of matching output dimensions
-    model.add(Dense(30, activation="softmax"))
-    model.add(Dense(300, activation="softmax"))
+    model.add(Dense(200, activation="relu"))
+    model.add(Dense(200, activation="relu"))
+    model.add(Dense(100, activation="relu"))
+    model.add(Dense(200, activation="relu"))
+    model.add(Dense(200, activation="relu"))
+    model.add(Dense(300, activation=None))
     # model compilation
     logging.info('compiling the model...')
-    model.compile(optimizer=SGD(lr=0.001), loss='categorical_crossentropy', metrics=['accuracy'])
+    model.compile(optimizer=SGD(lr=0.01), loss='mean_squared_error', metrics=['accuracy'])
     # model fitting
     logging.info('training...')
-    training_history = model.fit(train_data, train_labels, epochs=10, batch_size=40)
-    create_training_graph(training_history, 'training_history.png')
+    training_history = model.fit(train_data, train_labels, epochs=50, batch_size=10, verbose=0)
+    create_training_graph(training_history, GRAPH_PATH)
     # model evaluation
     logging.info('evaluating...')
-    loss, accuracy = model.evaluate(test_data, test_labels, batch_size=40, verbose=0)
+    loss, accuracy = model.evaluate(test_data, test_labels, batch_size=10, verbose=0)
     print(f'evaluating scores: loss = {loss}, accuracy = {accuracy}')
     # save model to json and h5 files
     logging.info('save model...')
@@ -155,22 +159,31 @@ def training(data, labels, model_file_path):
     save_model_to_h5(model, model_file_path)
 
 
-def create_training_graph(training_history, image_path):
+def create_training_graph(training_history, image_path, with_validation=False):
     """
     Create loss and accuracy graphs
     :param training_history: a history object returned from model.fit function
     :param image_path: an absolute path for graph file
+    :param with_validation: mark that training_history contains validation data
     """
     x_axis = training_history.epoch
     y1_axis = training_history.history['accuracy']
     y2_axis = training_history.history['loss']
     fig, (accuracy_line, loss_line) = plt.subplots(2)
     fig.suptitle('Training History')
-    accuracy_line.plot(x_axis, y1_axis, label='accuracy')
+    accuracy_line.plot(x_axis, y1_axis, label='train accuracy')
     accuracy_line.set(xlabel='x - epochs', ylabel='y - accuracy')
-    loss_line.plot(x_axis, y2_axis, label='loss')
+    loss_line.plot(x_axis, y2_axis, label='train loss')
     loss_line.set(xlabel='x - epochs', ylabel='y - loss')
+    if with_validation:
+        val_accuracy = training_history.history['val_accuracy']
+        val_loss = training_history.history['val_loss']
+        accuracy_line.plot(x_axis, val_accuracy, label='validation accuracy')
+        loss_line.plot(x_axis, val_loss, label='validation loss')
+    accuracy_line.legend()
+    loss_line.legend()
     fig.savefig(image_path)
+    plt.show()
     plt.close(fig)
 
 
@@ -259,10 +272,10 @@ def test_task_handler(user_args):
     model = load_model(user_args.model)
     model.summary()
     logging.info(f'reading query from {user_args.query} file...')
-    with open(user_args.query, 'r') as query_file:
+    with open(user_args.query, 'r', errors='ignores', encoding='utf-8') as query_file:
         query = query_file.read()
     logging.info(f'reading sentences from {user_args.text} file...')
-    with open(user_args.text, 'r') as sentences_file:
+    with open(user_args.text, 'r', errors='ignores', encoding='utf-8') as sentences_file:
         sentences = [sentence.replace('\n', '') for sentence in sentences_file.readlines()]
     logging.info('pre processing query...')
     processed_query = sentence_pre_processing(query)
@@ -271,22 +284,18 @@ def test_task_handler(user_args):
     logging.info('loading vectors...')
     word_vectors = load_vectors(WORD_VECTORS_FILE_PATH)
     logging.info('converting query to average vectors...')
-    query_avg_vector = get_average_vector(processed_query, word_vectors)
+    query_avg_vector = np.asarray([get_average_vector(processed_query, word_vectors), ])
     logging.info('converting sentences to average vectors...')
     sentences_avg_vectors = get_average_vectors_from_array(processed_sentences, word_vectors)
-
-    # np.savetxt('test_query_recovery.csv', query_avg_vector, delimiter='|')
-    # np.savetxt('test_sentences_recovery.csv', sentences_avg_vectors, delimiter='|')
-    # query_avg_vector = np.asarray([np.genfromtxt('test_query_recovery.csv', delimiter='|'), ])
-    # sentences_avg_vectors = np.genfromtxt('test_sentences_recovery.csv', delimiter='|')
-
+    logging.info('predict sentence of query...')
     predict_vector = model.predict(query_avg_vector)
+    logging.info('finding the most similar sentence...')
     cosine_similarity_values = []
     max_val = None
     max_index = 0
     for i, sentence_vector in enumerate(sentences_avg_vectors, 0):
         sentence_vector_2d = np.asarray([sentence_vector, ])
-        val = cosine_similarity(predict_vector, sentence_vector_2d)[0][0]
+        val = cosine_similarity(predict_vector, sentence_vector_2d)[0][0]  # the highest value is of most similar vector
         cosine_similarity_values.append(val)
         if max_val is None:
             max_val = val
@@ -295,6 +304,14 @@ def test_task_handler(user_args):
             max_index = i
     most_similar_sentence = sentences[max_index]
     print(f'"{most_similar_sentence}" sentence is similar to "{query}" query in {max_val} score')
+    most_similar_sentence_file_path = os.path.dirname(user_args.query)
+    if not most_similar_sentence_file_path:
+        most_similar_sentence_file_path = os.curdir
+    most_similar_sentence_file_path = os.path.join(most_similar_sentence_file_path, MOST_SIMILAR_FILE_NAME)
+    logging.info(f'saving the most similar sentence to {most_similar_sentence_file_path} file...')
+    with open(most_similar_sentence_file_path, 'w') as most_similar_sentence_file:
+        most_similar_sentence_file.write(most_similar_sentence)
+    logging.info('test task done!')
 
 
 def sentence_pre_processing(raw_sentence):
@@ -315,7 +332,7 @@ TASKS = {
     'test': test_task_handler
 }
 
-ALL_STOPWORDS = stopwords.words()
+ALL_STOPWORDS = stopwords.words('english')
 
 
 def main():
