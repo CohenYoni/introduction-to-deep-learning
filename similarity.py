@@ -136,11 +136,11 @@ def training(data, labels, model_file_path):
     model = Sequential()  # layers are stacked one upon each other
     model.add(Dense(300, activation="relu", input_dim=300))  # input layer, 300 is the size of an input vector
     # stacking takes care of matching output dimensions
-    model.add(Dense(200, activation="relu"))
+    model.add(Dense(250, activation="relu"))
     model.add(Dense(200, activation="relu"))
     model.add(Dense(100, activation="relu"))
     model.add(Dense(200, activation="relu"))
-    model.add(Dense(200, activation="relu"))
+    model.add(Dense(250, activation="relu"))
     model.add(Dense(300, activation=None))
     # model compilation
     logging.info('compiling the model...')
