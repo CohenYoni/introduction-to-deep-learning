@@ -24,7 +24,7 @@ import os
 
 WORD_VECTORS_FILE_PATH = 'wiki-news-300d-1M.vec'
 MOST_SIMILAR_FILE_NAME = 'most_similar.txt'
-GRAPH_PATH = 'training_history.png'
+GRAPH_PATH = 'training_history_graph.png'
 TEST_PORTION_SIZE = 0.3
 
 logging.basicConfig(stream=sys.stdout, format='%(asctime)s | %(message)s', level=logging.INFO)
@@ -103,9 +103,9 @@ def train_task_handler(user_args):
     dataset = read_dataset(user_args.data)
     logging.info('remove sentences without tags...')
     dataset = remove_sentences_without_tags(dataset)
-    logging.info('pre processing sentences...')
+    logging.info('sentences pre processing...')
     processed_sentences = np.asarray(list(map(sentence_pre_processing, dataset['description'])))
-    logging.info('pre processing tags...')
+    logging.info('tags pre processing...')
     processed_tags = np.asarray(list(map(sentence_pre_processing, dataset['tags'])))
     logging.info('loading vectors...')
     word_vectors = load_vectors(WORD_VECTORS_FILE_PATH)
@@ -148,43 +148,53 @@ def training(data, labels, model_file_path):
     # model fitting
     logging.info('training...')
     training_history = model.fit(train_data, train_labels, epochs=50, batch_size=10)
-    create_training_graph(training_history, GRAPH_PATH)
     # model evaluation
     logging.info('evaluating...')
-    loss, accuracy = model.evaluate(test_data, test_labels, batch_size=10)
-    print(f'evaluating scores: loss = {loss}, accuracy = {accuracy}')
+    test_loss, test_accuracy = model.evaluate(test_data, test_labels, batch_size=10)
+    print(f'evaluating scores: loss = {test_loss}, accuracy = {test_accuracy}')
+    logging.info('creating training graph...')
+    create_training_graph(training_history, GRAPH_PATH,
+                          test_history={'test_loss': test_loss, 'test_accuracy': test_accuracy})
     # save model to json and h5 files
     logging.info('save model...')
     save_model_to_json(model, model_file_path)
     save_model_to_h5(model, model_file_path)
 
 
-def create_training_graph(training_history, image_path, with_validation=False):
+def create_training_graph(training_history, image_path, test_history=None, with_validation=False):
     """
     Create loss and accuracy graphs
     :param training_history: a history object returned from model.fit function
     :param image_path: an absolute path for graph file
+    :param test_history: a dictionary with test accuracy and test loss
     :param with_validation: mark that training_history contains validation data
     """
-    x_axis = training_history.epoch
-    y1_axis = training_history.history['accuracy']
-    y2_axis = training_history.history['loss']
-    fig, (accuracy_line, loss_line) = plt.subplots(2)
-    fig.suptitle('Training History')
-    accuracy_line.plot(x_axis, y1_axis, label='train accuracy')
+    # axises data
+    epoch_axis = training_history.epoch
+    accuracy_axis = training_history.history['accuracy']
+    loss_axis = training_history.history['loss']
+    # draw training data
+    figure, (accuracy_line, loss_line) = plt.subplots(2)
+    figure.suptitle('Training History')
+    accuracy_line.plot(epoch_axis, accuracy_axis, label='train accuracy')
     accuracy_line.set(xlabel='x - epochs', ylabel='y - accuracy')
-    loss_line.plot(x_axis, y2_axis, label='train loss')
+    loss_line.plot(epoch_axis, loss_axis, label='train loss')
     loss_line.set(xlabel='x - epochs', ylabel='y - loss')
+    # draw test data
+    if test_history:
+        accuracy_line.text(0.5, 0.5, f'accuracy test = {test_history["test_accuracy"]}')
+        loss_line.text(0.5, 0.5, f'loss test = {test_history["test_loss"]}')
+    # draw validation data
     if with_validation:
         val_accuracy = training_history.history['val_accuracy']
         val_loss = training_history.history['val_loss']
-        accuracy_line.plot(x_axis, val_accuracy, label='validation accuracy')
-        loss_line.plot(x_axis, val_loss, label='validation loss')
+        accuracy_line.plot(epoch_axis, val_accuracy, label='validation accuracy')
+        loss_line.plot(epoch_axis, val_loss, label='validation loss')
     accuracy_line.legend()
     loss_line.legend()
-    fig.savefig(image_path)
+    figure.savefig(image_path)
     plt.show()
-    plt.close(fig)
+    plt.close(figure)
 
 
 def save_model_to_h5(model_obj, model_file_path):
@@ -241,6 +251,7 @@ def get_average_vectors_from_array(array_of_words_array, word_vectors):
     """
     sentences_avg_vectors = []
     for sentence in array_of_words_array:
+        # get average vector of one sentence
         sentence_avg = get_average_vector(sentence, word_vectors)
         sentences_avg_vectors.append(sentence_avg)
     return np.asarray(sentences_avg_vectors)
@@ -254,6 +265,7 @@ def load_vectors(vectors_file_path):
     """
     with open(vectors_file_path, 'r', encoding='utf-8', newline='\n', errors='ignore') as fp:
         length, dimension = map(int, fp.readline().split())  # read header
+        logging.info(f'{vectors_file_path}: length={length}, dimension={dimension}')
         data = {}
         for line in fp:
             tokens = line.rstrip().split(' ')
@@ -273,13 +285,14 @@ def test_task_handler(user_args):
     model.summary()
     logging.info(f'reading query from {user_args.query} file...')
     with open(user_args.query, 'r', errors='ignores', encoding='utf-8') as query_file:
-        query = query_file.read()
+        query = query_file.readline()
     logging.info(f'reading sentences from {user_args.text} file...')
     with open(user_args.text, 'r', errors='ignores', encoding='utf-8') as sentences_file:
         sentences = [sentence.replace('\n', '') for sentence in sentences_file.readlines()]
-    logging.info('pre processing query...')
+    sentences = list(filter(None, sentences))  # drop empty lines
+    logging.info('query pre processing...')
     processed_query = sentence_pre_processing(query)
-    logging.info('pre processing sentences...')
+    logging.info('sentences pre processing...')
     processed_sentences = np.asarray(list(map(sentence_pre_processing, sentences)))
     logging.info('loading vectors...')
     word_vectors = load_vectors(WORD_VECTORS_FILE_PATH)
@@ -287,24 +300,25 @@ def test_task_handler(user_args):
     query_avg_vector = np.asarray([get_average_vector(processed_query, word_vectors), ])
     logging.info('converting sentences to average vectors...')
     sentences_avg_vectors = get_average_vectors_from_array(processed_sentences, word_vectors)
-    logging.info('predict sentence of query...')
+    logging.info('predicting sentence of query...')
     predict_vector = model.predict(query_avg_vector)
     logging.info('finding the most similar sentence...')
     cosine_similarity_values = []
     max_val = None
     max_index = 0
     for i, sentence_vector in enumerate(sentences_avg_vectors, 0):
-        sentence_vector_2d = np.asarray([sentence_vector, ])
+        sentence_vector_2d = np.asarray([sentence_vector, ])  # numpy array with one vector (vector length is 300)
         val = cosine_similarity(predict_vector, sentence_vector_2d)[0][0]  # the highest value is of most similar vector
         cosine_similarity_values.append(val)
-        if max_val is None:
+        if max_val is None:  # for the first time
             max_val = val
         elif val > max_val:
             max_val = val
             max_index = i
-    most_similar_sentence = sentences[max_index]
+    most_similar_sentence = sentences[max_index]  # most similar sentence
     print(f'"{most_similar_sentence}" sentence is similar to "{query}" query in {max_val} score')
-    most_similar_sentence_file_path = os.path.dirname(user_args.query)
+    # save most similar sentence to file
+    most_similar_sentence_file_path = os.path.dirname(user_args.query)  # get container directory from file path
     if not most_similar_sentence_file_path:
         most_similar_sentence_file_path = os.curdir
     most_similar_sentence_file_path = os.path.join(most_similar_sentence_file_path, MOST_SIMILAR_FILE_NAME)
@@ -323,7 +337,7 @@ def sentence_pre_processing(raw_sentence):
     words = np.asarray(word_tokenize(raw_sentence.lower()))  # lower case and tokenization
     punctuation_removed = map(remove_punctuation, words)  # remove punctuation
     stopwords_filtered = filter(lambda word: word not in ALL_STOPWORDS, punctuation_removed)  # stop word removal
-    return np.asarray(list(filter(is_alphanumeric, stopwords_filtered)))
+    return np.asarray(list(filter(is_alphanumeric, stopwords_filtered)))  # remove non-alphanumeric words
 
 
 # mapping task to function
