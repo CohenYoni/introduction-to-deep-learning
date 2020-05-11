@@ -176,14 +176,16 @@ def create_training_graph(training_history, image_path, test_history=None, with_
     # draw training data
     figure, (accuracy_line, loss_line) = plt.subplots(2)
     figure.suptitle('Training History')
-    accuracy_line.plot(epoch_axis, accuracy_axis, label='train accuracy')
     accuracy_line.set(xlabel='x - epochs', ylabel='y - accuracy')
-    loss_line.plot(epoch_axis, loss_axis, label='train loss')
     loss_line.set(xlabel='x - epochs', ylabel='y - loss')
+    accuracy_line_label = 'train accuracy'
+    loss_line_label = 'train loss'
     # draw test data
     if test_history:
-        accuracy_line.text(0.5, 0.5, f'accuracy test = {test_history["test_accuracy"]}')
-        loss_line.text(0.5, 0.5, f'loss test = {test_history["test_loss"]}')
+        accuracy_line_label += f', test accuracy = {test_history["test_accuracy"]}'
+        loss_line_label += f', test loss = {test_history["test_loss"]}'
+    accuracy_line.plot(epoch_axis, accuracy_axis, label=accuracy_line_label)
+    loss_line.plot(epoch_axis, loss_axis, label=loss_line_label)
     # draw validation data
     if with_validation:
         val_accuracy = training_history.history['val_accuracy']
@@ -285,7 +287,7 @@ def test_task_handler(user_args):
     model.summary()
     logging.info(f'reading query from {user_args.query} file...')
     with open(user_args.query, 'r', errors='ignores', encoding='utf-8') as query_file:
-        query = query_file.readline()
+        query = query_file.readline().replace('\n', '')
     logging.info(f'reading sentences from {user_args.text} file...')
     with open(user_args.text, 'r', errors='ignores', encoding='utf-8') as sentences_file:
         sentences = [sentence.replace('\n', '') for sentence in sentences_file.readlines()]
