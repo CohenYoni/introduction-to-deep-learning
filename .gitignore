@@ -6,3 +6,4 @@
 !BBC_news_dataset.csv
 !load_words_vector.py
 !similarity.py
+!image_classification.py
