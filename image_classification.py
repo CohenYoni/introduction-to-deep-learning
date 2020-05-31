@@ -24,7 +24,6 @@ WORD_VECTORS_FILE_PATH = 'wiki-news-300d-1M.vec'
 GRAPH_PATH = 'training_history_graph.png'
 DEFAULT_MODEL_PATH = 'image_model.h5'
 TOP_SIMILARITIES = 3
-TEST_IMAGE_PATH = 'train.jpg'
 
 logging.basicConfig(stream=sys.stdout, format='%(asctime)s | %(message)s', level=logging.INFO)
 
@@ -37,6 +36,7 @@ def get_user_cli_args():
     parser = argparse.ArgumentParser(description='Find the sentence most similar to given query')
     parser.add_argument('--task', choices=TASKS.keys(), help='/'.join(TASKS.keys()), required=True)
     parser.add_argument('--model', help='trained model file global path', default=DEFAULT_MODEL_PATH)
+    parser.add_argument('--image', help='image file global path')
     return parser.parse_args()
 
 
@@ -287,11 +287,12 @@ def test_task_handler(user_args):
     Run testing task
     :param user_args: user cli arguments
     """
+    assert user_args.image, '--image argument is missing'
     logging.info('loading model...')
     model = load_model(user_args.model)
     model.summary()
-    logging.info(f'reading {TEST_IMAGE_PATH}...')
-    image_tensor = read_image(TEST_IMAGE_PATH)
+    logging.info(f'reading {user_args.image}...')
+    image_tensor = read_image(user_args.image)
     image_tensor = pixel_treatment(image_tensor.reshape(1, 32, 32, 3))
     # TODO: REMOVE!!!
     # train, _ = get_train_and_test_data()
@@ -302,7 +303,6 @@ def test_task_handler(user_args):
     logging.info('loading vectors...')
     word_vectors = load_fast_text_vectors(WORD_VECTORS_FILE_PATH)
     logging.info('calculating cosine similarity...')
-    cosine_similarity_values = []
     # items = np.array(list(word_vectors.items()))
     # wv is a tuple: (word, 300D vector)
     # similarities = np.array([{wv[0]: cosine_similarity(predict_vector, wv[1].reshape(1, 300))} for wv in items])
