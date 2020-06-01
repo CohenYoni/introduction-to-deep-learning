@@ -7,3 +7,4 @@
 !load_words_vector.py
 !similarity.py
 !image_classification.py
+!cifar100_meta
