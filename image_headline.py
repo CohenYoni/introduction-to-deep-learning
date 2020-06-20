@@ -250,12 +250,6 @@ def build_rnn_model():
 
 def rnn_training(train_data, train_labels, test_data, test_labels, model_file_path):
     # model definition
-
-    train_data = train_data[:200]
-    train_labels = train_labels[:200]
-    test_data = test_data[:100]
-    test_labels = test_labels[:100]
-
     logging.info('defining rnn model...')
     model = build_rnn_model()
     # model compilation
@@ -312,6 +306,7 @@ def train_task_handler(user_args):
         np.save(TEST_DATA_CHECKPOINT_PATH, test_data)
         np.save(TEST_LABELS_CHECKPOINT_PATH, test_labels)
     else:
+        logging.info('loading saved pre-processed data...')
         train_data = np.load(TRAIN_DATA_CHECKPOINT_PATH, allow_pickle=True)
         train_labels = np.load(TRAIN_LABELS_CHECKPOINT_PATH, allow_pickle=True)
         test_data = np.load(TEST_DATA_CHECKPOINT_PATH, allow_pickle=True)
