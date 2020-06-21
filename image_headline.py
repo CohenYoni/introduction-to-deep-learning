@@ -4,11 +4,12 @@ Yoni Cohen
 May Hagbi
 """
 
-from keras.layers import Dense, Conv2D, BatchNormalization, MaxPooling2D, Flatten, Activation, Dropout
-from keras.layers import LSTM, TimeDistributed
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
 from keras.models import Sequential, load_model
+from keras.layers import LSTM, TimeDistributed
+from keras.callbacks import ModelCheckpoint
+from keras.layers import Dense, Dropout
 from nltk.tokenize import word_tokenize
 from keras.optimizers import Adam
 import matplotlib.pyplot as plt
@@ -22,17 +23,6 @@ import cv2
 import os
 
 
-PROD = False
-CHECKPOINTS_DIR_PATH = 'checkpoints'
-TRAIN_DATA_CHECKPOINT_NAME = 'train_data.npy'
-TRAIN_LABELS_CHECKPOINT_NAME = 'train_labels.npy'
-TEST_DATA_CHECKPOINT_NAME = 'test_data.npy'
-TEST_LABELS_CHECKPOINT_NAME = 'test_labels.npy'
-TRAIN_DATA_CHECKPOINT_PATH = os.path.join(CHECKPOINTS_DIR_PATH, TRAIN_DATA_CHECKPOINT_NAME)
-TRAIN_LABELS_CHECKPOINT_PATH = os.path.join(CHECKPOINTS_DIR_PATH, TRAIN_LABELS_CHECKPOINT_NAME)
-TEST_DATA_CHECKPOINT_PATH = os.path.join(CHECKPOINTS_DIR_PATH, TEST_DATA_CHECKPOINT_NAME)
-TEST_LABELS_CHECKPOINT_PATH = os.path.join(CHECKPOINTS_DIR_PATH, TEST_LABELS_CHECKPOINT_NAME)
-
 DEFAULT_MODEL2_PATH = 'regression_model.h5'
 DEFAULT_MODEL3_PATH = 'image_model.h5'
 DEFAULT_MODEL4_PATH = 'text_model.h5'
@@ -40,9 +30,21 @@ DEFAULT_WORD_VECTORS_FILE_PATH = 'wiki-news-300d-1M.vec'
 BBC_DATASET_FILE_PATH = 'BBC_news_dataset.csv'
 RNN_GRAPH_PATH = 'training_rnn_history_graph.png'
 MODEL4_SEQUENCE_LENGTH = 3
-MODEL4_NUM_OF_UNITS = MODEL4_SEQUENCE_LENGTH
+MODEL4_NUM_OF_UNITS = 4
 WORD_VECTOR_LENGTH = 300
 TEST_PORTION_SIZE = 0.2
+
+
+LOAD_CHECKPOINT_DATASET = True
+CHECKPOINTS_DIR_PATH = 'checkpoints'
+TRAIN_DATA_CHECKPOINT_NAME = f'train_data_{MODEL4_SEQUENCE_LENGTH}L.npy'
+TRAIN_LABELS_CHECKPOINT_NAME = f'train_labels_{MODEL4_SEQUENCE_LENGTH}L.npy'
+TEST_DATA_CHECKPOINT_NAME = f'test_data_{MODEL4_SEQUENCE_LENGTH}L.npy'
+TEST_LABELS_CHECKPOINT_NAME = f'test_labels_{MODEL4_SEQUENCE_LENGTH}L.npy'
+TRAIN_DATA_CHECKPOINT_PATH = os.path.join(CHECKPOINTS_DIR_PATH, TRAIN_DATA_CHECKPOINT_NAME)
+TRAIN_LABELS_CHECKPOINT_PATH = os.path.join(CHECKPOINTS_DIR_PATH, TRAIN_LABELS_CHECKPOINT_NAME)
+TEST_DATA_CHECKPOINT_PATH = os.path.join(CHECKPOINTS_DIR_PATH, TEST_DATA_CHECKPOINT_NAME)
+TEST_LABELS_CHECKPOINT_PATH = os.path.join(CHECKPOINTS_DIR_PATH, TEST_LABELS_CHECKPOINT_NAME)
 
 
 logging.basicConfig(stream=sys.stdout, format='%(asctime)s | %(message)s', level=logging.INFO)
@@ -182,12 +184,11 @@ def save_model_to_h5(model_obj, model_file_path):
     logging.info(f'Model saved to {model_file_path}')
 
 
-def sentence_words_to_vectors(sentence, word_vectors, ctr=None):
+def sentence_words_to_vectors(sentence, word_vectors):
     """
     Represent every word W in your sentence as its word vector V(W)
     :param sentence: numpy array of words
     :param word_vectors: FastText
-    :param ctr: counter of missing words
     :return: sentence of vectors
     """
     sentence_as_vectors = []
@@ -195,10 +196,7 @@ def sentence_words_to_vectors(sentence, word_vectors, ctr=None):
         try:
             sentence_as_vectors.append(word_vectors[word])
         except KeyError:
-            logging.info(f'there is no vector for {word}, ignored!')
             sentence_as_vectors.append(np.zeros(300))
-            if ctr:
-                ctr['missing'] += 1
     return np.array(sentence_as_vectors)
 
 
@@ -242,6 +240,9 @@ def build_rnn_model():
     model = Sequential()
     input_shape = (MODEL4_SEQUENCE_LENGTH, WORD_VECTOR_LENGTH)
     model.add(LSTM(MODEL4_NUM_OF_UNITS, return_sequences=True, activation="tanh", input_shape=input_shape))
+    model.add(LSTM(MODEL4_NUM_OF_UNITS, return_sequences=True, activation="tanh"))
+    model.add(LSTM(MODEL4_NUM_OF_UNITS, return_sequences=True, activation="tanh"))
+    model.add(LSTM(MODEL4_NUM_OF_UNITS, return_sequences=True, activation="tanh"))
     model.add(LSTM(MODEL4_NUM_OF_UNITS, return_sequences=False, activation="tanh"))
     model.add(Dense(300))
     # model.add(TimeDistributed(Dense(300)))
@@ -260,10 +261,14 @@ def rnn_training(train_data, train_labels, test_data, test_labels, model_file_pa
     model.summary()
     # model fitting
     logging.info('training rnn...')
-    training_history = model.fit(train_data, train_labels, epochs=20, batch_size=50, validation_split=0.1)
+    model_checkpoint_callback = ModelCheckpoint(
+        filepath='best_text_model.h5', save_weights_only=False, monitor='val_loss',
+        mode='min', save_best_only=True, verbose=1)
+    training_history = model.fit(train_data, train_labels, epochs=20, batch_size=64, validation_split=0.1, verbose=2,
+                                 callbacks=[model_checkpoint_callback, ])
     # model evaluation
     logging.info('evaluating rnn...')
-    test_loss, test_accuracy = model.evaluate(test_data, test_labels)
+    test_loss, test_accuracy = model.evaluate(test_data, test_labels, verbose=2)
     print(f'evaluating scores: loss = {test_loss}, accuracy = {test_accuracy}')
     # save model to json and h5 files
     logging.info('save rnn model...')
@@ -280,19 +285,18 @@ def train_task_handler(user_args):
     """
     assert user_args.wordvec, 'word vectors file path is missing'
     assert user_args.model4, 'text model file path is missing'
-    if PROD or not checkpoint_files_exists():
+    if not LOAD_CHECKPOINT_DATASET or not checkpoint_files_exists():
         logging.info('loading bbc dataset...')
         bbc_dataset = read_bbc_dataset(BBC_DATASET_FILE_PATH)
         logging.info('performing rnn pre processing...')
         sentences_as_words = rnn_pre_processing(bbc_dataset)
         del bbc_dataset
         logging.info('loading vectors...')
+
         word_vectors = load_fast_text_vectors(user_args.wordvec)
         logging.info('representing sentence words as vector...')
-        ctr = {'missing': 0}
-        sentences_as_vectors = np.array([sentence_words_to_vectors(s, word_vectors, ctr) for s in sentences_as_words])
+        sentences_as_vectors = np.array([sentence_words_to_vectors(s, word_vectors) for s in sentences_as_words])
         del word_vectors, sentences_as_words
-        logging.info(f'{ctr["missing"]} words were ignored!')
         sequences, labels = create_sequence_and_label(sentences_as_vectors)
         del sentences_as_vectors
         logging.info(f'splitting to {(1 - TEST_PORTION_SIZE)*100}% train / {TEST_PORTION_SIZE * 100}% test...')
@@ -395,10 +399,9 @@ def test_task_handler(user_args):
     headline_as_avg_vector = np.array([word_vectors[word] for word in headline]).mean(axis=0)
     alternative_headline_vector = regression_model.predict(headline_as_avg_vector.reshape(1, 300))
     bbc_dataset = read_bbc_dataset(BBC_DATASET_FILE_PATH)
-    ctr = {'missing': 0}
     sentences_as_words = rnn_pre_processing(bbc_dataset)
     del bbc_dataset
-    sentences_as_vectors = np.array([sentence_words_to_vectors(s, word_vectors, ctr) for s in sentences_as_words])
+    sentences_as_vectors = np.array([sentence_words_to_vectors(s, word_vectors) for s in sentences_as_words])
     sentences_as_avg_vectors = np.array([s.mean(axis=0) for s in sentences_as_vectors])
     alternative_headline_idx = find_similar_idx(alternative_headline_vector, sentences_as_avg_vectors)
     alternative_headline = ' '.join(sentences_as_words[alternative_headline_idx])
