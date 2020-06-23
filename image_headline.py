@@ -7,12 +7,12 @@ May Hagbi
 from sklearn.metrics.pairwise import cosine_similarity
 from sklearn.model_selection import train_test_split
 from keras.models import Sequential, load_model
-from keras.layers import LSTM, TimeDistributed
 from keras.callbacks import ModelCheckpoint
-from keras.layers import Dense, Dropout
 from nltk.tokenize import word_tokenize
 from keras.optimizers import Adam
 import matplotlib.pyplot as plt
+from keras.layers import Dense
+from keras.layers import LSTM
 import pandas as pd
 import numpy as np
 import argparse
@@ -30,12 +30,12 @@ DEFAULT_WORD_VECTORS_FILE_PATH = 'wiki-news-300d-1M.vec'
 BBC_DATASET_FILE_PATH = 'BBC_news_dataset.csv'
 RNN_GRAPH_PATH = 'training_rnn_history_graph.png'
 MODEL4_SEQUENCE_LENGTH = 3
-MODEL4_NUM_OF_UNITS = 4
+MODEL4_NUM_OF_UNITS = 3
 WORD_VECTOR_LENGTH = 300
 TEST_PORTION_SIZE = 0.2
 
 
-LOAD_CHECKPOINT_DATASET = True
+LOAD_CHECKPOINT_DATASET = False
 CHECKPOINTS_DIR_PATH = 'checkpoints'
 TRAIN_DATA_CHECKPOINT_NAME = f'train_data_{MODEL4_SEQUENCE_LENGTH}L.npy'
 TRAIN_LABELS_CHECKPOINT_NAME = f'train_labels_{MODEL4_SEQUENCE_LENGTH}L.npy'
@@ -245,7 +245,6 @@ def build_rnn_model():
     model.add(LSTM(MODEL4_NUM_OF_UNITS, return_sequences=True, activation="tanh"))
     model.add(LSTM(MODEL4_NUM_OF_UNITS, return_sequences=False, activation="tanh"))
     model.add(Dense(300))
-    # model.add(TimeDistributed(Dense(300)))
     return model
 
 
@@ -262,9 +261,9 @@ def rnn_training(train_data, train_labels, test_data, test_labels, model_file_pa
     # model fitting
     logging.info('training rnn...')
     model_checkpoint_callback = ModelCheckpoint(
-        filepath='best_text_model.h5', save_weights_only=False, monitor='val_loss',
+        filepath='best_text_model.h5', save_weights_only=False, monitor='loss',
         mode='min', save_best_only=True, verbose=1)
-    training_history = model.fit(train_data, train_labels, epochs=20, batch_size=64, validation_split=0.1, verbose=2,
+    training_history = model.fit(train_data, train_labels, epochs=20, batch_size=32, validation_split=0.1, verbose=2,
                                  callbacks=[model_checkpoint_callback, ])
     # model evaluation
     logging.info('evaluating rnn...')
